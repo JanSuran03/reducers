@@ -1,121 +1,68 @@
 package reducers
 
-import kotlin.math.PI
-
-internal interface IFinalize<INTERMEDIATE, RET> {
-    fun finalize(result: INTERMEDIATE): RET
+interface Reducer<TIntermediate, TInput, TRet> {
+    fun init(): TIntermediate
+    fun finalize(result: TIntermediate): TRet
+    fun reduce1(result: TIntermediate, input: TInput): TIntermediate
 }
 
-internal interface IReduce1<INTERMEDIATE, INPUT> {
-    fun reduce1(result: INTERMEDIATE, input: INPUT): INTERMEDIATE
+interface Transducer<TIn, TMid> {
+    fun <TOut> compose(xf2: Transducer<TMid, TOut>): Transducer<TIn, TOut>
+
+    fun <Tntermediate, TInput, TRet> build(reducer: Reducer<Tntermediate, TInput, TRet>)
+    : Reducer<>
 }
 
-internal interface IReduceInit<INTERMEDIATE, INPUT>
-    : IReduce1<INTERMEDIATE, INPUT> {
-    fun reduce(init: INTERMEDIATE, coll: Iterable<INPUT>): INTERMEDIATE {
-        return reduce(init, coll.iterator())
-    }
-
-    fun reduce(init: INTERMEDIATE, iterator: Iterator<INPUT>): INTERMEDIATE {
-        var ret = init
-
-        while (iterator.hasNext()) {
-            ret = reduce1(ret, iterator.next())
+fun <T> filter(pred: (x: T) -> Boolean): Any {
+    return object : Transducer<T, T> {
+        override fun <Out> compose(xf2: Transducer<T, Out>): Transducer<T, Out> {
+            TODO("Not yet implemented")
         }
 
-        return ret
-    }
-}
+        override fun <TIntermediate, T2, TRet> build(reducer: Reducer<TIntermediate, T2, TRet>): Reducer<TIntermediate, T2, TRet> {
+            return object : Reducer<TIntermediate, T2, TRet> {
+                override fun init(): TIntermediate {
+                    return reducer.init()
+                }
 
-internal interface IReduce<T>
-    : IReduceInit<T, T> {
-    fun reduce(coll: Iterable<T>): T {
-        return reduce(coll.iterator())
-    }
+                @Suppress("UNCHECKED_CAST")
+                override fun reduce1(
+                    result: TIntermediate,
+                    input: T2, /* T = T2, ale potrebuju oba typove parametry... */
+                ): TIntermediate {
+                    @Suppress("UNCHECKED_CAST") // yep, tady to vadi
+                    // idealne tam mit 2 "ruzne" typove parametry, ale type checkovat, ze se rovnaji...
+                    return if (pred(input as T)) {
+                        reducer.reduce1(result, input as T2)
+                    } else {
+                        result
+                    }
+                }
 
-    fun reduce(iterator: Iterator<T>): T {
-        val x = if (iterator.hasNext()) {
-            iterator.next()
-        } else {
-            throw NoSuchElementException("Cannot reduce-init with <2 item coll, 0 provided")
+                override fun finalize(result: TIntermediate): TRet {
+                    return reducer.finalize(result)
+                }
+            }
         }
-        val y = if (iterator.hasNext()) {
-            iterator.next()
-        } else {
-            throw NoSuchElementException("Cannot reduce-init with <2 coll, 1 provided")
-        }
-
-        return reduce(reduce1(x, y), iterator)
     }
 }
 
-internal interface ITransduceInit<INTERMEDIATE, INPUT, RET>
-    : IReduceInit<INTERMEDIATE, INPUT>,
-    IFinalize<INTERMEDIATE, RET> {
-    fun transduce(init: INTERMEDIATE, coll: Iterator<INPUT>): RET {
-        return finalize(super.reduce(init, coll))
+val intInserter = object : Reducer<MutableSet<Int>, Int, Set<Int>> {
+    override fun init(): MutableSet<Int> {
+        return mutableSetOf()
     }
 
-    fun transduce(init: INTERMEDIATE, coll: Iterable<INPUT>): RET {
-        return transduce(init, coll.iterator())
-    }
-}
-
-internal interface ITransduce<T, RET>
-    : ITransduceInit<T, T, RET> {
-    fun transduce(coll: Iterable<T>): RET {
-        return transduce(coll.iterator())
+    override fun reduce1(result: MutableSet<Int>, input: Int): MutableSet<Int> {
+        result.add(input)
+        return result
     }
 
-    fun transduce(iterator: Iterator<T>): RET {
-        val x = if (iterator.hasNext()) {
-            iterator.next()
-        } else {
-            throw NoSuchElementException("Cannot reduce-init with <2 item coll, 0 provided")
-        }
-        val y = if (iterator.hasNext()) {
-            iterator.next()
-        } else {
-            throw NoSuchElementException("Cannot reduce-init with <2 coll, 1 provided")
-        }
-
-        return transduce(reduce1(x, y), iterator)
+    override fun finalize(result: MutableSet<Int>): Set<Int> {
+        return result.toSet()
     }
 }
 
-object AdderReducer : IReduce<Int> {
-    override fun reduce1(result: Int, input: Int): Int {
-        return result + input
-    }
-}
 
-object PlusPiAndDoubler : ITransduce<Int, Double> {
-    override fun finalize(result: Int): Double {
-        return (result + PI) * 2
-    }
+fun main() {
 
-    override fun reduce1(result: Int, input: Int): Int {
-        return result + input
-    }
-
-}
-
-object Main {
-    @JvmStatic
-    fun main(args: Array<String>) {
-        val range = IntRange(1, 4)
-        println("Sum of numbers 1..4 is ${AdderReducer.reduce(range)}")
-
-        println("Sum of numbers 1..4 + PI and all times 2 = ${PlusPiAndDoubler.transduce(range)}")
-
-        println("Sum of numbers 1..4 with init 7 is ${AdderReducer.reduce(7, range)}")
-
-        println("Sum of numbers 1..4 with init 7, + PI and * 2 = ${PlusPiAndDoubler.transduce(7, range)}")
-
-
-        val emptyRange = IntRange.EMPTY
-        println("Sum of empty range is ${AdderReducer.reduce(0, emptyRange)}")
-
-        println("Sum of empty range + PI and times 2 is ${PlusPiAndDoubler.transduce(0, emptyRange)}")
-    }
 }
